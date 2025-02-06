@@ -425,11 +425,21 @@ class KspGradleSubplugin @Inject internal constructor(private val registry: Tool
         }
 
         fun configureLanguageVersion(kspTask: KotlinCompilationTask<*>) {
-            val languageVersion = kotlinCompilation.compilerOptions.options.languageVersion
-            val progressiveMode = kotlinCompilation.compilerOptions.options.progressiveMode
+            val languageVersionProvider = kotlinCompilation.compileTaskProvider.flatMap { kotlinCompileTask ->
+                runCatching {
+                    kotlinCompileTask.compilerOptions.languageVersion.map { it.version }
+                }.getOrNull()
+                    ?: project.provider { null }
+            }
+            val progressiveModeProvider = kotlinCompilation.compileTaskProvider.flatMap { kotlinCompileTask ->
+                runCatching {
+                    kotlinCompileTask.compilerOptions.progressiveMode
+                }.getOrNull()
+                    ?: project.provider { null }
+            }
             kspTask.compilerOptions.languageVersion.value(
                 project.provider {
-                    languageVersion.orNull?.let { version ->
+                    languageVersionProvider.orNull?.let { version ->
                         if (version >= KotlinVersion.KOTLIN_2_0) {
                             KotlinVersion.KOTLIN_1_9
                         } else {
@@ -442,16 +452,10 @@ class KspGradleSubplugin @Inject internal constructor(private val registry: Tool
             // Turn off progressive mode if we need to downgrade language version.
             kspTask.compilerOptions.progressiveMode.value(
                 project.provider {
-                    val compileLangVer = languageVersion.orNull ?: KotlinVersion.DEFAULT
-                    if (compileLangVer >= KotlinVersion.KOTLIN_2_0) {
-                        false
-                    } else {
-                        progressiveMode.orNull
-                    }
+                   progressiveModeProvider.orNull ?: false
                 }
             )
         }
-
         val isIncremental = project.providers.gradleProperty("ksp.incremental").orNull?.toBoolean() ?: true
         val isIntermoduleIncremental =
             (project.providers.gradleProperty("ksp.incremental.intermodule").orNull?.toBoolean() ?: true) &&
